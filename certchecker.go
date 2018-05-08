@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,6 +14,12 @@ import (
 	"github.com/pkg/errors"
 	scan "github.com/prasincs/ssllabs-scan"
 	yaml "gopkg.in/yaml.v2"
+)
+
+const (
+	errExpiringShortly = "%s: ** '%s' (S/N %X) expires in %d hours! **"
+	errExpiringSoon    = "%s: '%s' (S/N %X) expires in roughly %d days."
+	errSunsetAlg       = "%s: '%s' (S/N %X) expires after the sunset date for its signature algorithm '%s'."
 )
 
 func readDomainsFile(domainFile string) (resp map[string][]string, err error) {
@@ -46,6 +53,19 @@ func checkAllFalse(items ...bool) string {
 	return term.Green("OK").String()
 }
 
+func domainExpiry(domain string) (time.Time, error) {
+	// allow InsecureSkipVerify for only checking domains
+	conn, err := tls.Dial("tcp", domain, &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		return time.Unix(0, 0), err
+	}
+	defer conn.Close()
+	//checkedCerts := make(map[string]struct{})
+	//certs := []string{}
+	chains := conn.ConnectionState().PeerCertificates
+	return chains[0].NotAfter, nil
+}
+
 func main() {
 	var domainsFile = flag.String("domains-file", "domains.yml", "List of domains separated by environments")
 	var useCache = flag.Bool("usecache", false, "If true, accept cached results (if available), else force live scan.")
@@ -57,6 +77,16 @@ func main() {
 		log.Fatalf("Error: %s", err)
 	}
 	domains := envDomains[cloud.ENV]
+	if *showExpiriesOnly {
+		for _, domain := range domains {
+			expiresOn, err := domainExpiry(domain + ":443")
+			if err != nil {
+				log.Printf("Failed to get domain expiry for %s, Err: %s", domain, err)
+			}
+			fmt.Printf("%s => %s (%s)\n", domain, expiresOn, humanize.Time(expiresOn))
+		}
+		return
+	}
 	log.Println(domains)
 	scan.IgnoreMismatch(true)
 	scan.UseCache(*useCache)
@@ -77,9 +107,6 @@ func main() {
 				}
 				expiresOn := time.Unix(report.Certs[0].NotAfter/1000, 0)
 				fmt.Printf("ExpiryTime: %s(%s)\n", expiresOn, humanize.Time(expiresOn))
-				if *showExpiriesOnly {
-					continue
-				}
 				for _, endpoint := range report.Endpoints {
 
 					fmt.Printf("Grade: %s\n", endpoint.Grade)
