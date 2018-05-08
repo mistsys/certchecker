@@ -50,6 +50,7 @@ func main() {
 	var domainsFile = flag.String("domains-file", "domains.yml", "List of domains separated by environments")
 	var useCache = flag.Bool("usecache", false, "If true, accept cached results (if available), else force live scan.")
 	var showAllEndpoints = flag.Bool("all-endpoints", false, "If true, show all endpoints")
+	var showExpiriesOnly = flag.Bool("expiries", false, "Only show expiries")
 	flag.Parse()
 	envDomains, err := readDomainsFile(*domainsFile)
 	if err != nil {
@@ -59,7 +60,7 @@ func main() {
 	log.Println(domains)
 	scan.IgnoreMismatch(true)
 	scan.UseCache(*useCache)
-	hp := scan.NewHostProvider(domains[:2])
+	hp := scan.NewHostProvider(domains)
 	manager := scan.NewManager(hp)
 	for {
 		_, running := <-manager.FrontendEventChannel
@@ -67,18 +68,27 @@ func main() {
 			if hp.StartingLen == 0 {
 				return
 			}
-			//fmt.Println(manager.Results.Responses[0])
 			for _, report := range manager.Results.Reports {
-
 				fmt.Println(report.Host)
+
+				//fmt.Printf("%#v\n", report)
+				if len(report.Certs) == 0 {
+					continue
+				}
+				expiresOn := time.Unix(report.Certs[0].NotAfter/1000, 0)
+				fmt.Printf("ExpiryTime: %s(%s)\n", expiresOn, humanize.Time(expiresOn))
+				if *showExpiriesOnly {
+					continue
+				}
 				for _, endpoint := range report.Endpoints {
+
 					fmt.Printf("Grade: %s\n", endpoint.Grade)
 					details := endpoint.Details
-					expiresOn := time.Unix(details.Cert.NotAfter/1000, 0)
-					fmt.Printf("ExpiryTime: %s(%s)\n", expiresOn, humanize.Time(expiresOn))
+
 					fmt.Println("==== Vulnerabilities ===")
-					fmt.Printf("vulnerable TLS versions supported: %s\n", checkAllTrue(validateTLS(details)))
+					//fmt.Printf("vulnerable TLS versions supported: %s\n", checkAllTrue(validateTLS(details)))
 					fmt.Printf("RC4 is Not Supported: %s\n", checkAllFalse(details.Rc4Only, details.SupportsRc4))
+					fmt.Printf("Heartbeat: %s\n", checkAllFalse(details.Heartbeat))
 					fmt.Printf("Heartbleed: %s\n", checkAllFalse(details.Heartbleed))
 					fmt.Printf("Poodle: %s\n", checkAllFalse(details.Poodle))
 					fmt.Printf("DH public server params reuse: %s\n", checkAllFalse(details.DhYsReuse))
@@ -87,12 +97,12 @@ func main() {
 					fmt.Printf("Logjam: %s\n", checkAllFalse(details.Logjam))
 					fmt.Printf("Drown: %s\n", checkAllFalse(details.DrownVulnerable))
 					fmt.Printf("BEAST: %s\n", checkAllFalse(details.VulnBeast))
-					fmt.Println("==== Cipher Suites ===")
+					//fmt.Println("==== Cipher Suites ===")
 
 					//for _, suite := range details.Suites {
 
 					//}
-					fmt.Printf("%#v\n", details.Suites)
+					//fmt.Printf("%#v\n", details.Suites)
 					fmt.Println()
 					if !*showAllEndpoints {
 						break
