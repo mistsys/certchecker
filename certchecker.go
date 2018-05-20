@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
+	"strings"
 	"time"
 
 	humanize "github.com/dustin/go-humanize"
@@ -66,31 +69,61 @@ func domainExpiry(domain string) (time.Time, error) {
 	return chains[0].NotAfter, nil
 }
 
+func resolveIP(domain string) ([]string, error) {
+	resolver := net.Resolver{}
+	return resolver.LookupHost(context.Background(), domain)
+}
+
+func resolveCNAME(domain string) (string, error) {
+	resolver := net.Resolver{}
+	return resolver.LookupCNAME(context.Background(), domain)
+}
+
 func main() {
 	var domainsFile = flag.String("domains-file", "domains.yml", "List of domains separated by environments")
 	var useCache = flag.Bool("usecache", false, "If true, accept cached results (if available), else force live scan.")
 	var showAllEndpoints = flag.Bool("all-endpoints", false, "If true, show all endpoints")
+	var resolveIPFlag = flag.Bool("resolve-ip", false, "If true, resolves all the domain ips")
+	var resolveCNAMEFlag = flag.Bool("resolve-cname", false, "If true resolve all the domain cname")
 	var showExpiriesOnly = flag.Bool("expiries", false, "Only show expiries")
+	var domains = flag.Strings("domain", []string{}, "Domains to scan for, overrides env")
 	flag.Parse()
 	envDomains, err := readDomainsFile(*domainsFile)
 	if err != nil {
 		log.Fatalf("Error: %s", err)
 	}
-	domains := envDomains[cloud.ENV]
+	if len(*domains) == 0 {
+		envDomains := envDomains[cloud.ENV]
+		domains = &envDomains
+	}
 	if *showExpiriesOnly {
-		for _, domain := range domains {
+		for _, domain := range *domains {
 			expiresOn, err := domainExpiry(domain + ":443")
 			if err != nil {
 				log.Printf("Failed to get domain expiry for %s, Err: %s", domain, err)
 			}
-			fmt.Printf("%s => %s (%s)\n", domain, expiresOn, humanize.Time(expiresOn))
+			if !*resolveIPFlag && !*resolveCNAMEFlag {
+				fmt.Printf("%s => %s (%s)\n", domain, expiresOn, humanize.Time(expiresOn))
+			} else if *resolveIPFlag {
+				resolved, err := resolveIP(domain)
+				if err != nil {
+					log.Printf("Failed to lookup %s. Err: %s", domain, err)
+				}
+				fmt.Printf("%s: %s => %s (%s)\n", domain, strings.Join(resolved, ","), expiresOn, humanize.Time(expiresOn))
+			} else if *resolveCNAMEFlag {
+				resolved, err := resolveCNAME(domain)
+				if err != nil {
+					log.Printf("Failed to lookup %s. Err: %s", domain, err)
+				}
+				fmt.Printf("%s: %s => %s (%s)\n", domain, resolved, expiresOn, humanize.Time(expiresOn))
+			}
 		}
 		return
 	}
-	log.Println(domains)
+	log.Println("Checking domains: ", *domains)
 	scan.IgnoreMismatch(true)
 	scan.UseCache(*useCache)
-	hp := scan.NewHostProvider(domains)
+	hp := scan.NewHostProvider(*domains)
 	manager := scan.NewManager(hp)
 	for {
 		_, running := <-manager.FrontendEventChannel
