@@ -3,14 +3,15 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
-	// "os"
+	"os"
 	"reflect"
+	"sort"
 	// "strconv"
+	"encoding/csv"
 	"strings"
 	"time"
 
@@ -30,19 +31,19 @@ const (
 )
 
 type CertCheckerResults struct {
-	Host             string            `json:"Host"`
-	TestTime         string            `json:"Time of Test"`
-	ExpiryTime       string            `json:"Domain Expiry"`
-	IPAddress        string            `json:"IP Address"`
-	ServerName       string            `json:"Server Name"`
-	Grade            string            `json:"Grade"`
-	VulnerableTLS    string            `json:"Vulnerable TLS versions"`
-	RC4NotSupported  string            `json:"RC4 Support"`
-	WeakCipherSuites map[int]string    `json:"Weak Cipher Suites"`
+	Host          string `json:"Host"`
+	TestTime      string `json:"Time of Test"`
+	ExpiryTime    string `json:"Domain Expiry"`
+	IPAddress     string `json:"IP Address"`
+	ServerName    string `json:"Server Name"`
+	Grade         string `json:"Grade"`
+	VulnerableTLS string `json:"Vulnerable TLS versions"`
+	// RC4NotSupported  string            `json:"RC4 Support"`
+	WeakCipherSuites string            `json:"Weak Cipher Suites TLSv1.2"`
 	VulnResults      map[string]string `json:"Vulnerabilities"`
 }
 
-/***
+/* Future: Can integrate support for other API's
 type SSLCheck interface {
 	Scan(domain string) (*CertCheckerResults, error)
 }
@@ -52,7 +53,7 @@ type SSLLabsChecker struct{}
 func (s *SSLLabsChecker) Scan() (*CertCheckerResults, error){
 	return nil, nil
 }
-**/
+*/
 
 // MAP to label TLS versions as weak(false) or strong(true)
 var versionsTLS = map[string]bool{
@@ -125,13 +126,13 @@ func validateTLS(details scan.LabsEndpointDetails) string {
 	for _, protocolType := range details.Protocols {
 		var vTLS = protocolType.Name + ":" + protocolType.Version
 		if !versionsTLS[vTLS] {
-			versions += vTLS + " "
+			versions += vTLS + "\n"
 		}
 	}
 	if versions != "" {
-		return (term.Redf(versions))
+		return (versions)
 	}
-	return term.Green("No Vulnerable versions supported!").String()
+	return "No Vulnerable versions supported!"
 }
 
 func analyzeResultValue(test string, value int64) string {
@@ -144,7 +145,7 @@ func analyzeResultValue(test string, value int64) string {
 		case 0:
 			testresult = "unknown"
 		case 1:
-			testresult = term.Greenf("not vulnerable")
+			testresult = "not vulnerable"
 		case 2:
 			testresult = "vulnerable (weak oracle)"
 		case 3:
@@ -159,7 +160,7 @@ func analyzeResultValue(test string, value int64) string {
 		case 2:
 			testresult = "Good! server supports ECDHE suites, but not DHE"
 		case 4:
-			testresult = term.Greenf("Great! ECDHE + DHE combination supported")
+			testresult = "Great! ECDHE + DHE combination supported"
 		default:
 			testresult = "Bad Result or Test Error"
 		}
@@ -170,7 +171,7 @@ func analyzeResultValue(test string, value int64) string {
 		case 0:
 			testresult = "unknown"
 		case 1:
-			testresult = term.Greenf("not vulnerable")
+			testresult = "not vulnerable"
 		case 2:
 			testresult = "possibly vulnerable, but not exploitable"
 		case 3:
@@ -183,7 +184,7 @@ func analyzeResultValue(test string, value int64) string {
 		case 0:
 			testresult = "unknown"
 		case 1:
-			testresult = term.Greenf("not vulnerable")
+			testresult = "not vulnerable"
 		case 2:
 			testresult = "vulnerable and insecure"
 		}
@@ -194,7 +195,7 @@ func analyzeResultValue(test string, value int64) string {
 		case 0:
 			testresult = "unknown"
 		case 1:
-			testresult = term.Greenf("not vulnerable")
+			testresult = "not vulnerable"
 		case 2:
 			testresult = "vulnerable and insecure"
 		}
@@ -209,13 +210,13 @@ func analyzeResultValue(test string, value int64) string {
 		case 0:
 			testresult = "unknown"
 		case 1:
-			testresult = term.Greenf("not vulnerable")
+			testresult = "not vulnerable"
 		case 2:
 			testresult = "vulnerable"
 		}
 	case "RenegSupport":
 		if value > 1 {
-			testresult = term.Greenf("Secure")
+			testresult = "secure"
 		} else {
 			testresult = "insecure client-initiated renegotiation is supported"
 		}
@@ -226,25 +227,17 @@ func analyzeResultValue(test string, value int64) string {
 	return testresult
 }
 
-func validateROBOT(details scan.LabsEndpointDetails) string {
-	var testresult string
-	var result int
-	result = details.Bleichenbacher
+func colorizeOutput(result string) string {
+	var output string
 	switch result {
-	case -1:
-		testresult = "test failed"
-	case 0:
-		testresult = "unknown"
-	case 1:
-		testresult = "not vulnerable"
-	case 2:
-		testresult = "vulnerable (weak oracle)"
-	case 3:
-		testresult = "vulnerable (strong oracle)"
-	case 4:
-		testresult = "inconsistent results"
+	case "vulnerable":
+		output = term.Redf(result)
+	case "not vulnerable", "secure":
+		output = term.Greenf(result)
+	default:
+		output = result
 	}
-	return testresult
+	return output
 }
 
 func printCertCheckerResults(scanResult *CertCheckerResults) {
@@ -253,10 +246,10 @@ func printCertCheckerResults(scanResult *CertCheckerResults) {
 	for i := 0; i < scanResults.NumField(); i++ {
 		f := scanResults.Field(i)
 		if f.Kind() == reflect.Map {
-			fmt.Println(typeOfT.Field(i).Name, ":")
+			// fmt.Println(typeOfT.Field(i).Name, ":")
 			for _, key := range f.MapKeys() {
 				strct := f.MapIndex(key)
-				fmt.Println("\t", key.Interface(), ":", strct.Interface())
+				fmt.Println(key.Interface(), ":", colorizeOutput(strct.Interface().(string)))
 			}
 		} else {
 			fmt.Printf("%s: %v\n", typeOfT.Field(i).Name, f.Interface())
@@ -264,30 +257,88 @@ func printCertCheckerResults(scanResult *CertCheckerResults) {
 	}
 }
 
-func weakCipherSuites(details scan.LabsEndpointDetails) map[int]string {
-	//Will require update as more vulnerabilities discovered
+func prepareCSV(scanResult *CertCheckerResults) {
+	scanResults := reflect.ValueOf(scanResult).Elem()
+	typeOfT := scanResults.Type()
+	csvdatafile, err := os.Create("./scan_data.csv")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer csvdatafile.Close()
+	writer := csv.NewWriter(csvdatafile)
+	var record []string
+	for i := 0; i < scanResults.NumField(); i++ {
+		f := scanResults.Field(i)
+		if f.Kind() == reflect.Map {
+			var keys []string
+			for key := range scanResult.VulnResults {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				record = append(record, key)
+			}
+		} else {
+			record = append(record, typeOfT.Field(i).Name)
+		}
+	}
+	writer.Write(record)
+	writer.Flush()
+}
+
+func saveCertCheckerResults(scanResult *CertCheckerResults) {
+	scanResults := reflect.ValueOf(scanResult).Elem()
+	csvdatafile, err := os.OpenFile("./scan_data.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer csvdatafile.Close()
+	writer := csv.NewWriter(csvdatafile)
+
+	var record []string
+
+	for i := 0; i < scanResults.NumField(); i++ {
+		f := scanResults.Field(i)
+		if f.Kind() == reflect.Map {
+			var keys []string
+			for key := range scanResult.VulnResults {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				record = append(record, scanResult.VulnResults[key])
+			}
+		} else {
+			record = append(record, f.Interface().(string))
+		}
+	}
+	writer.Write(record)
+	writer.Flush()
+}
+
+func weakCipherSuites(details scan.LabsEndpointDetails) string {
+	//Will require update as more vulnerabilities discovered, display results for TLS v1.2
 	//https://github.com/ssllabs/research/wiki/SSL-and-TLS-Deployment-Best-Practices#23-use-secure-cipher-suites
-	vulnSuites := make(map[int]string)
+	var vulnSuites string
 	for _, suite := range details.Suites {
 		for _, suiteList := range suite.List {
 			if !strings.Contains(suiteList.Name, "DHE_") {
-				vulnSuites[suite.Protocol] += " " + suiteList.Name
+				if suite.Protocol == 771 {
+					vulnSuites += suiteList.Name + "\n"
+				}
 			}
 		}
 	}
-	if vulnSuites == nil {
-		vulnSuites[0] = "No weak Cipher Suites"
-	}
-	return vulnSuites
-
+	return (vulnSuites)
 }
 
 func analyzeTestResults(details scan.LabsEndpointDetails) map[string]string {
 	// Capture all tests specified in scanTests
+	// To add more test from SSL Labs API here, add to scanTests
 	scanTests := []string{"VulnBeast", "RenegSupport", "ForwardSecrecy", "Heartbeat", "Heartbleed",
 		"OpenSslCcs", "OpenSSLLuckyMinus20", "Ticketbleed", "Bleichenbacher",
 		"Poodle", "PoodleTLS", "FallbackScsv", "Freak", "DhYsReuse", "Logjam",
-		"DrownVulnerable"}
+		"DrownVulnerable", "SupportsRc4"}
 	scanDetails := reflect.ValueOf(&details).Elem()
 	vulnRslts := make(map[string]string)
 	for _, test := range scanTests {
@@ -296,9 +347,9 @@ func analyzeTestResults(details scan.LabsEndpointDetails) map[string]string {
 		switch valueType {
 		case "bool":
 			if testValue.Bool() {
-				vulnRslts[test] = term.Red("vulnerable").String()
+				vulnRslts[test] = "vulnerable"
 			} else {
-				vulnRslts[test] = term.Green("not vulnerable").String()
+				vulnRslts[test] = "not vulnerable"
 			}
 		case "int":
 			vulnRslts[test] = analyzeResultValue(test, testValue.Int())
@@ -363,6 +414,7 @@ func main() {
 	for {
 		_, running := <-manager.FrontendEventChannel
 		if !running {
+			resultCount := 0
 			if hp.StartingLen == 0 {
 				return
 			}
@@ -378,6 +430,7 @@ func main() {
 					if endpoint.StatusMessage == "Ready" {
 						scanResult.TestTime = time.Now().Format(time.RFC850)
 					} else {
+						scanResult.TestTime = "Endpoint Results not Available"
 						fmt.Println("Endpoint Results not Available:", endpoint.StatusMessage)
 						break
 					}
@@ -389,26 +442,29 @@ func main() {
 					scanResult.ServerName = endpoint.ServerName
 					details := endpoint.Details
 					scanResult.VulnerableTLS = validateTLS(details)
-					scanResult.RC4NotSupported = checkAllFalse(details.Rc4Only, details.SupportsRc4)
+					// scanResult.RC4NotSupported = checkAllFalse(details.Rc4Only, details.SupportsRc4)
 					scanResult.WeakCipherSuites = weakCipherSuites(details)
 					scanResult.VulnResults = analyzeTestResults(details)
 					if *printSummary {
 						fmt.Printf("======== Results for %s =========\n", report.Host)
 						printCertCheckerResults(scanResult)
 					}
-					if *saveSummary {
-						scanResultJSON, _ := json.Marshal(scanResult)
-						fmt.Println(string(scanResultJSON))
-						// scanResultBytes := []byte(string(scanResultJSON))
-						// var scanResultsNew CertCheckerResults
-						// er := json.Unmarshal(scanResultBytes, &scanResultsNew)
-					}
 					summaryResult[report.Host+"_"+endpoint.IpAddress] = *scanResult
-
 					if !*showAllEndpoints {
 						break
 					}
 				}
+
+			}
+			if *saveSummary {
+				for _, savedResults := range summaryResult {
+					if resultCount == 0 {
+						prepareCSV(&savedResults)
+					}
+					saveCertCheckerResults(&savedResults)
+					resultCount++
+				}
+				log.Println("Count of Results Saved: ", resultCount)
 			}
 			log.Println("Checking domains: ", *domains, "Done!")
 			return
