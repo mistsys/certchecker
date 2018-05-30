@@ -10,7 +10,6 @@ import (
 	"os"
 	"reflect"
 	"sort"
-	// "strconv"
 	"encoding/csv"
 	"strings"
 	"time"
@@ -38,7 +37,6 @@ type CertCheckerResults struct {
 	ServerName    string `json:"Server Name"`
 	Grade         string `json:"Grade"`
 	VulnerableTLS string `json:"Vulnerable TLS versions"`
-	// RC4NotSupported  string            `json:"RC4 Support"`
 	WeakCipherSuites string            `json:"Weak Cipher Suites TLSv1.2"`
 	VulnResults      map[string]string `json:"Vulnerabilities"`
 }
@@ -56,8 +54,8 @@ func (s *SSLLabsChecker) Scan() (*CertCheckerResults, error){
 */
 
 // MAP to label TLS versions as weak(false) or strong(true)
+// Secure (low->high) SSL v2, SSL v3, TLS v1.0, TLS v1.1, TLS v1.2, TLS v1.3
 var versionsTLS = map[string]bool{
-	// Secure (low->high) SSL v2, SSL v3, TLS v1.0, TLS v1.1, TLS v1.2, TLS v1.3
 	"TLS:1.3": true,
 	"TLS:1.2": true,
 	"TLS:1.1": false,
@@ -66,6 +64,9 @@ var versionsTLS = map[string]bool{
 	"SSL:2.0": false,
 }
 
+
+// readDomainsFile makes use of the file specified by input domainFile
+// to create a map for domains specified
 func readDomainsFile(domainFile string) (resp map[string][]string, err error) {
 	yamlFile, err := ioutil.ReadFile(domainFile)
 	if err != nil {
@@ -79,24 +80,7 @@ func readDomainsFile(domainFile string) (resp map[string][]string, err error) {
 	return
 }
 
-func checkAllTrue(items ...bool) string {
-	for i, item := range items {
-		if !item {
-			return term.Redf("Error on %d", i)
-		}
-	}
-	return term.Green("OK").String()
-}
-
-func checkAllFalse(items ...bool) string {
-	for i, item := range items {
-		if item {
-			return term.Redf("Error on %d", i)
-		}
-	}
-	return term.Green("OK").String()
-}
-
+// domainExpiry returns the expiry time for domain string
 func domainExpiry(domain string) (time.Time, error) {
 	// allow InsecureSkipVerify for only checking domains
 	conn, err := tls.Dial("tcp", domain, &tls.Config{InsecureSkipVerify: true})
@@ -110,16 +94,21 @@ func domainExpiry(domain string) (time.Time, error) {
 	return chains[0].NotAfter, nil
 }
 
+
+// Method to Lookup IP from domain
 func resolveIP(domain string) ([]string, error) {
 	resolver := net.Resolver{}
 	return resolver.LookupHost(context.Background(), domain)
 }
 
+// Method to Lookup CNAME from domain
 func resolveCNAME(domain string) (string, error) {
 	resolver := net.Resolver{}
 	return resolver.LookupCNAME(context.Background(), domain)
 }
 
+
+// validate TLS checks for weak or insecure TLS versions
 func validateTLS(details scan.LabsEndpointDetails) string {
 	// Versions in increasing preference SSL v2, SSL v3, TLS v1.0, TLS v1.1, TLS v1.2, TLS v1.3 (future)
 	var versions string
@@ -135,6 +124,10 @@ func validateTLS(details scan.LabsEndpointDetails) string {
 	return "No Vulnerable versions supported!"
 }
 
+
+// analyzeReasultValue makes use of switch-case statements to 
+// return outcome from various test results.
+// Note: For new tests, add new switch-case here
 func analyzeResultValue(test string, value int64) string {
 	var testresult string
 	switch test {
@@ -227,6 +220,8 @@ func analyzeResultValue(test string, value int64) string {
 	return testresult
 }
 
+
+// To colorize output for print-summary on CLI
 func colorizeOutput(result string) string {
 	var output string
 	switch result {
@@ -240,13 +235,13 @@ func colorizeOutput(result string) string {
 	return output
 }
 
+// printCertCheckerResults function is called when print-summary flag is set
 func printCertCheckerResults(scanResult *CertCheckerResults) {
 	scanResults := reflect.ValueOf(scanResult).Elem()
 	typeOfT := scanResults.Type()
 	for i := 0; i < scanResults.NumField(); i++ {
 		f := scanResults.Field(i)
 		if f.Kind() == reflect.Map {
-			// fmt.Println(typeOfT.Field(i).Name, ":")
 			for _, key := range f.MapKeys() {
 				strct := f.MapIndex(key)
 				fmt.Println(key.Interface(), ":", colorizeOutput(strct.Interface().(string)))
@@ -257,6 +252,8 @@ func printCertCheckerResults(scanResult *CertCheckerResults) {
 	}
 }
 
+
+// prepare CSV to store data using struct certCheckerResults fields
 func prepareCSV(scanResult *CertCheckerResults) {
 	scanResults := reflect.ValueOf(scanResult).Elem()
 	typeOfT := scanResults.Type()
@@ -286,6 +283,9 @@ func prepareCSV(scanResult *CertCheckerResults) {
 	writer.Flush()
 }
 
+
+// saveCertCheckerResults is called when save-summary flag is set
+// It saves results in a CSV format in the file scan_data.csv
 func saveCertCheckerResults(scanResult *CertCheckerResults) {
 	scanResults := reflect.ValueOf(scanResult).Elem()
 	csvdatafile, err := os.OpenFile("./scan_data.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -316,6 +316,7 @@ func saveCertCheckerResults(scanResult *CertCheckerResults) {
 	writer.Flush()
 }
 
+// weakCipherSuites lists all TLSv1.2 weak cipher suites supported
 func weakCipherSuites(details scan.LabsEndpointDetails) string {
 	//Will require update as more vulnerabilities discovered, display results for TLS v1.2
 	//https://github.com/ssllabs/research/wiki/SSL-and-TLS-Deployment-Best-Practices#23-use-secure-cipher-suites
@@ -332,9 +333,11 @@ func weakCipherSuites(details scan.LabsEndpointDetails) string {
 	return (vulnSuites)
 }
 
+
+// analyzeTestResults captures all tests specified in scanTests
+// To add more test from SSL Labs API here, add to scanTests
 func analyzeTestResults(details scan.LabsEndpointDetails) map[string]string {
-	// Capture all tests specified in scanTests
-	// To add more test from SSL Labs API here, add to scanTests
+	
 	scanTests := []string{"VulnBeast", "RenegSupport", "ForwardSecrecy", "Heartbeat", "Heartbleed",
 		"OpenSslCcs", "OpenSSLLuckyMinus20", "Ticketbleed", "Bleichenbacher",
 		"Poodle", "PoodleTLS", "FallbackScsv", "Freak", "DhYsReuse", "Logjam",
