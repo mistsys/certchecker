@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/csv"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"reflect"
 	"sort"
-	"encoding/csv"
 	"strings"
 	"time"
 
@@ -30,13 +30,13 @@ const (
 )
 
 type CertCheckerResults struct {
-	Host          string `json:"Host"`
-	TestTime      string `json:"Time of Test"`
-	ExpiryTime    string `json:"Domain Expiry"`
-	IPAddress     string `json:"IP Address"`
-	ServerName    string `json:"Server Name"`
-	Grade         string `json:"Grade"`
-	VulnerableTLS string `json:"Vulnerable TLS versions"`
+	Host             string            `json:"Host"`
+	TestTime         string            `json:"Time of Test"`
+	ExpiryTime       string            `json:"Domain Expiry"`
+	IPAddress        string            `json:"IP Address"`
+	ServerName       string            `json:"Server Name"`
+	Grade            string            `json:"Grade"`
+	VulnerableTLS    string            `json:"Vulnerable TLS versions"`
 	WeakCipherSuites string            `json:"Weak Cipher Suites TLSv1.2"`
 	VulnResults      map[string]string `json:"Vulnerabilities"`
 }
@@ -63,7 +63,6 @@ var versionsTLS = map[string]bool{
 	"SSL:3.0": false,
 	"SSL:2.0": false,
 }
-
 
 // readDomainsFile makes use of the file specified by input domainFile
 // to create a map for domains specified
@@ -94,7 +93,6 @@ func domainExpiry(domain string) (time.Time, error) {
 	return chains[0].NotAfter, nil
 }
 
-
 // Method to Lookup IP from domain
 func resolveIP(domain string) ([]string, error) {
 	resolver := net.Resolver{}
@@ -106,7 +104,6 @@ func resolveCNAME(domain string) (string, error) {
 	resolver := net.Resolver{}
 	return resolver.LookupCNAME(context.Background(), domain)
 }
-
 
 // validate TLS checks for weak or insecure TLS versions
 func validateTLS(details scan.LabsEndpointDetails) string {
@@ -124,8 +121,7 @@ func validateTLS(details scan.LabsEndpointDetails) string {
 	return "No Vulnerable versions supported!"
 }
 
-
-// analyzeReasultValue makes use of switch-case statements to 
+// analyzeReasultValue makes use of switch-case statements to
 // return outcome from various test results.
 // Note: For new tests, add new switch-case here
 func analyzeResultValue(test string, value int64) string {
@@ -220,7 +216,6 @@ func analyzeResultValue(test string, value int64) string {
 	return testresult
 }
 
-
 // To colorize output for print-summary on CLI
 func colorizeOutput(result string) string {
 	var output string
@@ -252,14 +247,13 @@ func printCertCheckerResults(scanResult *CertCheckerResults) {
 	}
 }
 
-
 // prepare CSV to store data using struct certCheckerResults fields
-func prepareCSV(scanResult *CertCheckerResults) {
+func prepareCSV(scanResult *CertCheckerResults, fileName string) error {
 	scanResults := reflect.ValueOf(scanResult).Elem()
 	typeOfT := scanResults.Type()
-	csvdatafile, err := os.Create("./scan_data.csv")
+	csvdatafile, err := os.Create(fileName)
 	if err != nil {
-		fmt.Println(err)
+		return errors.Wrapf(err, "Failed to create file %s", fileName)
 	}
 	defer csvdatafile.Close()
 	writer := csv.NewWriter(csvdatafile)
@@ -281,16 +275,16 @@ func prepareCSV(scanResult *CertCheckerResults) {
 	}
 	writer.Write(record)
 	writer.Flush()
+	return err
 }
-
 
 // saveCertCheckerResults is called when save-summary flag is set
 // It saves results in a CSV format in the file scan_data.csv
-func saveCertCheckerResults(scanResult *CertCheckerResults) {
+func saveCertCheckerResults(scanResult *CertCheckerResults, fileName string) error {
 	scanResults := reflect.ValueOf(scanResult).Elem()
-	csvdatafile, err := os.OpenFile("./scan_data.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	csvdatafile, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Println(err)
+		return errors.Wrapf(err, "Failed to open file %s for write", fileName)
 	}
 	defer csvdatafile.Close()
 	writer := csv.NewWriter(csvdatafile)
@@ -314,6 +308,7 @@ func saveCertCheckerResults(scanResult *CertCheckerResults) {
 	}
 	writer.Write(record)
 	writer.Flush()
+	return err
 }
 
 // weakCipherSuites lists all TLSv1.2 weak cipher suites supported
@@ -333,11 +328,10 @@ func weakCipherSuites(details scan.LabsEndpointDetails) string {
 	return (vulnSuites)
 }
 
-
 // analyzeTestResults captures all tests specified in scanTests
 // To add more test from SSL Labs API here, add to scanTests
 func analyzeTestResults(details scan.LabsEndpointDetails) map[string]string {
-	
+
 	scanTests := []string{"VulnBeast", "RenegSupport", "ForwardSecrecy", "Heartbeat", "Heartbleed",
 		"OpenSslCcs", "OpenSSLLuckyMinus20", "Ticketbleed", "Bleichenbacher",
 		"Poodle", "PoodleTLS", "FallbackScsv", "Freak", "DhYsReuse", "Logjam",
@@ -372,7 +366,7 @@ func main() {
 	var showExpiriesOnly = flag.Bool("expiries", false, "Only show expiries")
 	var domains = flag.Strings("domain", []string{}, "Domains to scan for, overrides env")
 	var saveSummary = flag.Bool("save-summary", false, "If true save results as summary")
-	var printSummary = flag.Bool("print-summary", false, "If true display results as summary")
+	var fileName = flag.String("output", "scan-data.csv", "output file to store data")
 
 	flag.Parse()
 	envDomains, err := readDomainsFile(*domainsFile)
@@ -408,7 +402,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("Preparing Summary..")
+	log.Println("Preparing Summary..")
 	log.Println("Checking domains: ", *domains)
 	scan.IgnoreMismatch(true)
 	scan.UseCache(*useCache)
@@ -434,7 +428,7 @@ func main() {
 						scanResult.TestTime = time.Now().Format(time.RFC850)
 					} else {
 						scanResult.TestTime = "Endpoint Results not Available"
-						fmt.Println("Endpoint Results not Available:", endpoint.StatusMessage)
+						log.Println("Endpoint Results not Available:", endpoint.StatusMessage)
 						break
 					}
 					scanResult.Host = report.Host
@@ -445,13 +439,10 @@ func main() {
 					scanResult.ServerName = endpoint.ServerName
 					details := endpoint.Details
 					scanResult.VulnerableTLS = validateTLS(details)
-					// scanResult.RC4NotSupported = checkAllFalse(details.Rc4Only, details.SupportsRc4)
 					scanResult.WeakCipherSuites = weakCipherSuites(details)
 					scanResult.VulnResults = analyzeTestResults(details)
-					if *printSummary {
-						fmt.Printf("======== Results for %s =========\n", report.Host)
-						printCertCheckerResults(scanResult)
-					}
+					fmt.Printf("======== Results for %s =========\n", report.Host)
+					printCertCheckerResults(scanResult)
 					summaryResult[report.Host+"_"+endpoint.IpAddress] = *scanResult
 					if !*showAllEndpoints {
 						break
@@ -459,12 +450,19 @@ func main() {
 				}
 
 			}
+
 			if *saveSummary {
 				for _, savedResults := range summaryResult {
 					if resultCount == 0 {
-						prepareCSV(&savedResults)
+						err := prepareCSV(&savedResults, *fileName)
+						if err != nil {
+							log.Printf("Failed to create file %s. Err: %s", *fileName, err)
+						}
 					}
-					saveCertCheckerResults(&savedResults)
+					err := saveCertCheckerResults(&savedResults, *fileName)
+					if err != nil {
+						log.Printf("Failed to write results for %s. Err: %s", savedResults.Host, err)
+					}
 					resultCount++
 				}
 				log.Println("Count of Results Saved: ", resultCount)
