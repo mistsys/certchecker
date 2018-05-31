@@ -340,16 +340,16 @@ func analyzeTestResults(details scan.LabsEndpointDetails) map[string]string {
 	vulnRslts := make(map[string]string)
 	for _, test := range scanTests {
 		testValue := scanDetails.FieldByName(test)
-		valueType := testValue.Type().String()
-		switch valueType {
-		case "bool":
+		// valueType := testValue.Type().String()
+		switch reflect.TypeOf(testValue.Interface()).Kind() {
+		case reflect.Int:
+			vulnRslts[test] = analyzeResultValue(test, testValue.Int())
+		case reflect.Bool:
 			if testValue.Bool() {
 				vulnRslts[test] = "vulnerable"
 			} else {
 				vulnRslts[test] = "not vulnerable"
 			}
-		case "int":
-			vulnRslts[test] = analyzeResultValue(test, testValue.Int())
 		default:
 			vulnRslts[test] = testValue.String()
 		}
