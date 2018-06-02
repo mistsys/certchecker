@@ -29,15 +29,16 @@ const (
 	errSunsetAlg       = "%s: '%s' (S/N %X) expires after the sunset date for its signature algorithm '%s'."
 )
 
+//CertCheckerResults struct object to capture results for each domain, end-point
 type CertCheckerResults struct {
 	Host             string            `json:"Host"`
-	TestTime         string            `json:"Time of Test"`
-	ExpiryTime       string            `json:"Domain Expiry"`
-	IPAddress        string            `json:"IP Address"`
-	ServerName       string            `json:"Server Name"`
+	TestTime         string            `json:"TimeofTest"`
+	ExpiryTime       string            `json:"DomainExpiry"`
+	IPAddress        string            `json:"IPAddress"`
+	ServerName       string            `json:"ServerName"`
 	Grade            string            `json:"Grade"`
-	VulnerableTLS    string            `json:"Vulnerable TLS versions"`
-	WeakCipherSuites string            `json:"Weak Cipher Suites TLSv1.2"`
+	VulnerableTLS    string            `json:"VulnerableTLSversions"`
+	WeakCipherSuites string            `json:"WeakCipherSuitesTLSv1.2"`
 	VulnResults      map[string]string `json:"Vulnerabilities"`
 }
 
