@@ -1,21 +1,34 @@
-# CertChecker
+CertChecker
+=============
 > CLI tool to check certificate security health and score against SSLlabs' scanner.
 
-With many services now being offered with setups across envirnments and using a combination of micro-services exposed via domains it is imperative now to perform periodical checks of each domain and prepare reports. CertChecker provides a quick analysis both as a CLI tool or to generate periodic reports on domain expiries and security vulnerabilities.
+With many services now being offered with setups across envirnments and using a combination of micro-services exposed via domains it is imperative to perform periodical checks of each domain. CertChecker provides a quick analysis both as a CLI tool or to generate periodic reports on domain expiries and security vulnerabilities.
 
 The tool utilizes API calls to SSL Labs, a brief report on domain "www.google.com" is available at 
 https://www.ssllabs.com/ssltest/analyze.html?d=www.google.com
 
+## Requirements
+
+* Go >= 1.3
+
 ## Installation
 
-To Download and Install the package and its dependencies, use the following commands:
+To Download and Install the package and its dependencies, use the following commands::
 
-    go get github.com/mistsys/certchecker
-    If go Path is set use cd $GOPATH/src/github.com/mistsys/certchecker else cd go/src/github.com/mistsys/certchecker
-    go get -u -d ./...
-    go run certchecker.go --env google --usecache
+```
+go get github.com/mistsys/certchecker
+cd $GOPATH/src/github.com/mistsys/certchecker
+go get -u -d ./...
+```
 
 ## Usage
+
+SYNOPSIS
+
+```
+    go run certchecker.go --env <environment> [options]
+```
+
 
 The tool can be used with the following options:
 
@@ -26,15 +39,25 @@ The tool can be used with the following options:
 - **environment**: run scans for different environments specified in YAML file
 - **output** <filename>: Use this flag to specify the output file to save data when save-summary option is used, default is scan-data.csv
 
+The result contains scans 
+- Domain Expiry Time
+- Grade (Overall grade provided by SSLLabs)
+- Vulnerable TLS versions supported
+- Weak Cipher Suites supported
+- Status on other Vulnerabilities (more types of checks can be added to the code as a list)
+
+This tool can be used for reporting purposes by configuring a schedule run as required. 
+
 ## Example
 
 To get a scan on vulnerabilities:
 
-Command:  `$ go run certchecker.go --env google --usecache`
+`$ go run certchecker.go --env google --usecache`
+
 
 Output:
 
-```shell
+```
 2018/07/03 14:18:44 Preparing Summary..
 2018/07/03 14:18:44 Checking domains:  [google.com]
 2018/07/03 14:18:44 [NOTICE] Server message:
@@ -84,6 +107,11 @@ Output:
 ```shell
 google.com => 2018-08-28 11:32:00 +0000 UTC (1 month from now)
 ```
+
+## Note
+
+To add more features to the tool or to understand how results are analysed visit :
+[SSL Labs API ](https://github.com/ssllabs/ssllabs-scan/blob/master/ssllabs-api-docs.md "SSL Labs API ")
 
 ## Authors
 
