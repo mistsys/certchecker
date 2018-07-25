@@ -14,19 +14,13 @@ import (
 	"strings"
 	"time"
 
+	flag "github.com/spf13/pflag"
+
 	humanize "github.com/dustin/go-humanize"
 	"github.com/google/goterm/term"
-	"github.com/mistsys/mist_go_utils/cloud"
-	"github.com/mistsys/mist_go_utils/flag"
 	"github.com/pkg/errors"
 	scan "github.com/prasincs/ssllabs-scan"
 	yaml "gopkg.in/yaml.v2"
-)
-
-const (
-	errExpiringShortly = "%s: ** '%s' (S/N %X) expires in %d hours! **"
-	errExpiringSoon    = "%s: '%s' (S/N %X) expires in roughly %d days."
-	errSunsetAlg       = "%s: '%s' (S/N %X) expires after the sunset date for its signature algorithm '%s'."
 )
 
 //CertCheckerResults struct object to capture results for each domain, end-point
@@ -365,17 +359,24 @@ func main() {
 	var resolveIPFlag = flag.Bool("resolve-ip", false, "If true, resolves all the domain ips")
 	var resolveCNAMEFlag = flag.Bool("resolve-cname", false, "If true resolve all the domain cname")
 	var showExpiriesOnly = flag.Bool("expiries", false, "Only show expiries")
-	var domains = flag.Strings("domain", []string{}, "Domains to scan for, overrides env")
+	var domains = flag.StringSlice("domain", []string{}, "Domains to scan for, overrides env")
 	var saveSummary = flag.Bool("save-summary", false, "If true save results as summary")
 	var fileName = flag.String("output", "scan-data.csv", "output file to store data")
+	var env = flag.String("env", "", "Environment")
 
 	flag.Parse()
 	envDomains, err := readDomainsFile(*domainsFile)
 	if err != nil {
 		log.Fatalf("Error: %s", err)
 	}
+
+	if *env == "" {
+		fmt.Println("Environment not supplied, please supply it as -env=<key in domains.yml>")
+		os.Exit(1)
+	}
+
 	if len(*domains) == 0 {
-		envDomains := envDomains[cloud.ENV]
+		envDomains := envDomains[*env]
 		domains = &envDomains
 	}
 	if *showExpiriesOnly {
