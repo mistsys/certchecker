@@ -365,20 +365,29 @@ func main() {
 	var env = flag.String("env", "", "Environment")
 
 	flag.Parse()
-	envDomains, err := readDomainsFile(*domainsFile)
-	if err != nil {
-		log.Fatalf("Error: %s", err)
+
+	var (
+		envDomains map[string][]string
+		err        error
+	)
+
+	if *env == "" && len(*domains) == 0 {
+		fmt.Println("Environment or domain not supplied, please supply it as --env=<key in domains.yml>, or --domain")
+		os.Exit(1)
 	}
 
-	if *env == "" {
-		fmt.Println("Environment not supplied, please supply it as -env=<key in domains.yml>")
-		os.Exit(1)
+	if *domainsFile != "" {
+		envDomains, err = readDomainsFile(*domainsFile)
+		if err != nil {
+			log.Fatalf("Error: %s", err)
+		}
 	}
 
 	if len(*domains) == 0 {
 		envDomains := envDomains[*env]
 		domains = &envDomains
 	}
+
 	if *showExpiriesOnly {
 		for _, domain := range *domains {
 			expiresOn, err := domainExpiry(domain + ":443")
